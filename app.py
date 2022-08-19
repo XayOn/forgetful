@@ -1,4 +1,6 @@
 from decimal import Decimal
+from pathlib import Path
+import tempfile
 import math
 import os
 
@@ -12,6 +14,11 @@ from face_recognition import face_encodings, load_image_file, face_locations
 from fastapi import FastAPI, UploadFile, HTTPException
 from loguru import logger
 from sklearn import neighbors
+
+import numpy as np
+import cv2
+from yoloair.utils.augmentations import letterbox
+from yoloair.detect import run as detect
 
 DBURI = str(os.getenv('DBURI'))
 database = databases.Database(DBURI)
@@ -28,10 +35,6 @@ engine = sqlalchemy.create_engine(DBURI)
 metadata.create_all(engine)
 app = FastAPI()
 CLASSIFIER = None
-
-
-class PersonResponse(BaseModel):
-    name: str
 
 
 async def load_model():
@@ -84,26 +87,37 @@ def get_faces_encodings(face_image):
     return facelocs, face_encodings(face, known_face_locations=facelocs)
 
 
-@app.post("/faces/search/", response_model=PersonResponse)
+@app.post("/faces/search/")
 async def search(face_image: UploadFile):
     if not CLASSIFIER:
         return {'error': 'app_starting_up'}
-    knn_clf = CLASSIFIER
-    face_locs, faces_encodings = get_faces_encodings(face_image)
-    closest = knn_clf.kneighbors(faces_encodings, n_neighbors=1)
-    are_matches = [closest[0][i][0] <= 0.6 for i in range(len(face_locs))]
-    preds = zip(knn_clf.predict(faces_encodings), are_matches)
-    try:
-        return dict(name=next(pred for pred, rec in preds if rec))
-    except StopIteration as e:
-        raise HTTPException(status_code=404, detail="None recognized") from e
+
+    suffix = Path(face_image.filename).suffix
+    # Force image to disk
+    with tempfile.NamedTemporaryFile(suffix=suffix) as fileo:
+        fileo.write(await face_image.read())
+        result = list(detect(source=fileo.name, return_direct=True))
+        names = []
+        if 'person' in result:
+            knn_clf = CLASSIFIER
+            face_locs, faces_encodings = get_faces_encodings(fileo)
+            closest = knn_clf.kneighbors(faces_encodings, n_neighbors=1)
+            are_matches = [closest[0][i][0] <=
+                           0.6 for i in range(len(face_locs))]
+            preds = zip(knn_clf.predict(faces_encodings), are_matches)
+            names = [pred for pred, rec in preds if rec]
+        if not result:
+            raise HTTPException(status_code=404, detail="Nothing found")
+        return dict(names=names, objects=result)
 
 
-@app.post("/faces/add/{name}", response_model=PersonResponse)
+@app.post("/faces/add/{name}")
 async def add(name: str, face_image: UploadFile):
     faces_encodings, _ = get_faces_encodings(face_image)
-    image = [str(Decimal(a)) for a in faces_encodings[0]]
-    query = persons.insert().values(name=name, image=image)
-    last_record_id = await database.execute(query)
+    ids = []
+    for face_encoding in faces_encodings:
+        image = [str(Decimal(a)) for a in face_encoding]
+        query = persons.insert().values(name=name, image=image)
+        ids.append(await database.execute(query))
     await load_model()
-    return dict(name=name, id=last_record_id)
+    return dict(name=name, ids=ids)
