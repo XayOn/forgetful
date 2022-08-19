@@ -20,7 +20,7 @@ RUN pip install pipx
 RUN pipx install "poetry==$POETRY_VERSION"
 RUN pipx ensurepath
 COPY pyproject.toml poetry.lock ./
-RUN apt-get update && apt-get install -y build-essential cmak libgl1 libgcc-s1 libopencv* \
+RUN apt-get update && apt-get install -y build-essential cmake libgl1 libgcc-s1 libopencv* \
     && poetry install --no-dev --no-root --no-interaction --no-ansi \
     && rm -rf /var/lib/apt/lists/* && apt-get remove -y build-essential cmake
 
