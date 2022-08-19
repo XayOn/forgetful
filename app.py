@@ -5,7 +5,6 @@ import math
 import os
 
 import numpy as np
-from pydantic import BaseModel
 import sqlalchemy
 from sqlalchemy.dialects.postgresql import ARRAY
 
@@ -15,9 +14,6 @@ from fastapi import FastAPI, UploadFile, HTTPException
 from loguru import logger
 from sklearn import neighbors
 
-import numpy as np
-import cv2
-from yoloair.utils.augmentations import letterbox
 from yoloair.detect import run as detect
 
 DBURI = str(os.getenv('DBURI'))
@@ -96,7 +92,8 @@ async def search(face_image: UploadFile):
     # Force image to disk
     with tempfile.NamedTemporaryFile(suffix=suffix) as fileo:
         fileo.write(await face_image.read())
-        result = list(detect(source=fileo.name, return_direct=True))
+        fileo.seek(0)
+        result = list(detect(source=Path(fileo.name), return_direct=True))
         names = []
         if 'person' in result:
             knn_clf = CLASSIFIER
@@ -113,7 +110,7 @@ async def search(face_image: UploadFile):
 
 @app.post("/faces/add/{name}")
 async def add(name: str, face_image: UploadFile):
-    faces_encodings, _ = get_faces_encodings(face_image)
+    _, faces_encodings = get_faces_encodings(face_image)
     ids = []
     for face_encoding in faces_encodings:
         image = [str(Decimal(a)) for a in face_encoding]
