@@ -14,19 +14,15 @@ ENV PYTHONFAULTHANDLER=1 \
     POETRY_CACHE_DIR='/var/cache/pypoetry' \
     PATH="$PATH:/root/.local/bin"
 
-WORKDIR /waka-readme
+WORKDIR /forgetful
 
-# install poetry
-# RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
 RUN pip install pipx
 RUN pipx install "poetry==$POETRY_VERSION"
 RUN pipx ensurepath
-
-# install dependencies
 COPY pyproject.toml poetry.lock ./
-RUN apt-get update && apt-get install -y build-essential \
- && poetry install --no-dev --no-root --no-interaction --no-ansi \
- && rm -rf /var/lib/apt/lists/* && apt-get remove build-essential 
+RUN apt-get update && apt-get install -y build-essential cmak libgl1 libgcc-s1 libopencv* \
+    && poetry install --no-dev --no-root --no-interaction --no-ansi \
+    && rm -rf /var/lib/apt/lists/* && apt-get remove -y build-essential cmake
 
 # copy and run program
 copy app.py ./
