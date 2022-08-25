@@ -94,27 +94,32 @@ async def search(face_image: UploadFile):
         fileo.write(await face_image.read())
         fileo.seek(0)
         result = list(detect(source=Path(fileo.name), return_direct=True))
-        names = []
-        if 'person' in result:
+        if not result:
+            raise HTTPException(status_code=404, detail="Nothing found")
+
+        names = set()
+        if result.count('person'):
             knn_clf = CLASSIFIER
             face_locs, faces_encodings = get_faces_encodings(fileo)
             closest = knn_clf.kneighbors(faces_encodings, n_neighbors=1)
-            are_matches = [closest[0][i][0] <=
-                           0.6 for i in range(len(face_locs))]
+            are_matches = [
+                closest[0][i][0] <= 0.6 for i in range(len(face_locs))
+            ]
             preds = zip(knn_clf.predict(faces_encodings), are_matches)
-            names = [pred for pred, rec in preds if rec]
-        if not result:
-            raise HTTPException(status_code=404, detail="Nothing found")
-        return dict(names=names, objects=result)
+            names = {str(pred) for pred, rec in preds if rec}
+
+        return {"result": {str(a) for a in result if a != 'person'} | names}
 
 
 @app.post("/faces/add/{name}")
-async def add(name: str, face_image: UploadFile):
+async def add(name: str, face_image: UploadFile, update_model: bool = True):
     _, faces_encodings = get_faces_encodings(face_image)
     ids = []
     for face_encoding in faces_encodings:
         image = [str(Decimal(a)) for a in face_encoding]
         query = persons.insert().values(name=name, image=image)
         ids.append(await database.execute(query))
-    await load_model()
+    if update_model:
+        # Don't always update model, for mass-loadings
+        await load_model()
     return dict(name=name, ids=ids)
