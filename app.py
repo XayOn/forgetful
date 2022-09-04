@@ -85,9 +85,6 @@ def get_faces_encodings(face_image):
 
 @app.post("/faces/search/")
 async def search(face_image: UploadFile):
-    if not CLASSIFIER:
-        return {'error': 'app_starting_up'}
-
     suffix = Path(face_image.filename).suffix
     # Force image to disk
     with tempfile.NamedTemporaryFile(suffix=suffix) as fileo:
@@ -99,14 +96,15 @@ async def search(face_image: UploadFile):
 
         names = set()
         if result.count('person'):
-            knn_clf = CLASSIFIER
-            face_locs, faces_encodings = get_faces_encodings(fileo)
-            closest = knn_clf.kneighbors(faces_encodings, n_neighbors=1)
-            are_matches = [
-                closest[0][i][0] <= 0.6 for i in range(len(face_locs))
-            ]
-            preds = zip(knn_clf.predict(faces_encodings), are_matches)
-            names = {str(pred) for pred, rec in preds if rec}
+            if CLASSIFIER:
+                knn_clf = CLASSIFIER
+                face_locs, faces_encodings = get_faces_encodings(fileo)
+                closest = knn_clf.kneighbors(faces_encodings, n_neighbors=1)
+                are_matches = [
+                    closest[0][i][0] <= 0.6 for i in range(len(face_locs))
+                ]
+                preds = zip(knn_clf.predict(faces_encodings), are_matches)
+                names = {str(pred) for pred, rec in preds if rec}
 
         return {"result": {str(a) for a in result if a != 'person'} | names}
 
