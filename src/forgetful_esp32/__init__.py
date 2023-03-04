@@ -37,6 +37,7 @@ async def get_next_image(iterator):
             return
         headers[key.decode()] = value.decode()
 
+    # Sometimes we receive the delimiter twice
     if headers.get("Content-Type") != "image/jpeg":
         return
 
@@ -49,15 +50,14 @@ async def get_next_image(iterator):
 
 
 async def process_video(url: str, queue: Queue):
-    while True:
-        with suppress(Exception):
-            async with httpx.AsyncClient() as client:
-                async with client.stream("GET", url) as resp:
-                    iterator = resp.aiter_bytes()
-                    while image := await get_next_image(iterator):
-                        if not queue.full():
-                            images = [asarray(Image.open(io.BytesIO(image)))]
-                            await queue.put(images)
+    """Process video in streaming mode."""
+    async with httpx.AsyncClient() as client:
+        async with client.stream("GET", url) as resp:
+            iterator = resp.aiter_bytes()
+            while image := await get_next_image(iterator):
+                if not queue.full():
+                    images = [asarray(Image.open(io.BytesIO(image)))]
+                    await queue.put(images)
 
 
 async def process_objects(queue):
@@ -77,11 +77,13 @@ async def main():
     But keep consuming them so that our feed is "clean".
     TODO: That might be something with my firmware...
     """
-    queue = Queue(maxsize=1)
-    await asyncio.gather(
-        process_video(os.getenv("STREAM_URL", ""), queue),
-        process_objects(queue),
-    )
+    while True:
+        with suppress(Exception):
+            queue = Queue(maxsize=1)
+            await asyncio.gather(
+                process_video(os.getenv("STREAM_URL", ""), queue),
+                process_objects(queue),
+            )
 
 
 def run_main():
